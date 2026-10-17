@@ -1,0 +1,152 @@
+temporada,clube,jogador,gols,confianca,fonte
+1968,Palmeiras,Tupãzinho,11,alta,PAL-oficial-1968;PAL-curiosidades
+1968,Palmeiras,Ademir da Guia,4,media,PAL-oficial-1968
+1968,Palmeiras,Ademar Pantera,3,alta,PAL-oficial-1968
+1968,Palmeiras,Servílio,3,alta,PAL-oficial-1968
+1971,Palmeiras,César Maluco,8,alta,PAL-oficial-1971;PAL-curiosidades
+1971,Palmeiras,Ademir da Guia,2,media,PAL-oficial-1971
+1971,Palmeiras,Hector Silva,3,alta,PAL-oficial-1971
+1971,Palmeiras,Pio,3,alta,PAL-oficial-1971
+1973,Palmeiras,Ademir da Guia,3,media,PAL-oficial-1973
+1973,Palmeiras,Nei,3,alta,PAL-oficial-1973
+1974,Palmeiras,Nei,1,alta,PAL-oficial-1974
+1979,Palmeiras,Jorge Mendonça,5,alta,PAL-oficial-1979
+1979,Palmeiras,Toninho Catarina,3,alta,PAL-oficial-1979
+1981,Flamengo,Zico,11,alta,ANacao-1981;CONMEBOL
+1981,Flamengo,Nunes,5,alta,ANacao-1981
+1981,Flamengo,Baroninho,3,alta,ANacao-1981
+1981,Flamengo,Adílio,3,alta,ANacao-1981
+1981,Flamengo,Tita,1,media,inferido: total 10 (Lance) menos 1982+1984
+1982,Flamengo,Zico,2,alta,ANacao-1982
+1982,Flamengo,Nunes,2,alta,ANacao-1982
+1982,Flamengo,Tita,1,alta,ANacao-1982
+1982,Flamengo,Júnior,1,alta,ANacao-1982
+1983,Flamengo,Zico,3,alta,ANacao-1983
+1983,Flamengo,Robertinho,3,alta,ANacao-1983
+1983,Flamengo,Élder,3,alta,ANacao-1983
+1983,Flamengo,Baltazar,3,alta,ANacao-1983
+1983,Flamengo,Adílio,1,alta,ANacao-1983
+1984,Flamengo,Tita,8,alta,ANacao-1984;Lance-2019
+1984,Flamengo,Edmar,6,alta,ANacao-1984
+1984,Flamengo,Bebeto,4,alta,ANacao-1984
+1984,Flamengo,Mozer,3,alta,ANacao-1984
+1984,Flamengo,Adílio,2,alta,ANacao-1984
+1984,Flamengo,Élder,1,alta,ANacao-1984
+1991,Flamengo,Gaúcho,8,alta,ANacao-1991;Lance-2019
+1991,Flamengo,Marcelinho Carioca,5,alta,ANacao-1991
+1991,Flamengo,Júnior,1,alta,ANacao-1991
+1991,Flamengo,Nélio,1,alta,ANacao-1991
+1993,Flamengo,Gaúcho,2,media,inferido: total 10 (Lance); súmula mistura Gaúcho e Renato Gaúcho
+1993,Flamengo,Marcelinho Carioca,2,alta,ANacao-1993
+1993,Flamengo,Nélio,3,alta,ANacao-1993
+1993,Flamengo,Nilson,3,alta,ANacao-1993
+1993,Flamengo,Wilson Gottardo,3,alta,ANacao-1993
+1993,Flamengo,Júnior,1,alta,ANacao-1993
+1994,Palmeiras,Edílson,5,alta,PAL-oficial-1994
+1994,Palmeiras,Evair,3,alta,PAL-oficial-1994
+1994,Palmeiras,Roberto Carlos,1,alta,PAL-oficial-1994
+1995,Palmeiras,Edmundo,5,alta,PAL-oficial-1995;PAL-curiosidades
+1995,Palmeiras,Rivaldo,5,alta,PAL-oficial-1995
+1995,Palmeiras,Roberto Carlos,3,alta,PAL-oficial-1995
+1999,Palmeiras,Alex,4,alta,PAL-oficial-1999
+1999,Palmeiras,Oséas,4,alta,PAL-oficial-1999
+1999,Palmeiras,Júnior Baiano,5,media,PAL-oficial-1999 (texto diz 6; tabela diz 5)
+1999,Palmeiras,Arce,3,alta,PAL-oficial-1999
+1999,Palmeiras,Paulo Nunes,3,alta,PAL-oficial-1999
+1999,Palmeiras,Evair,2,alta,PAL-oficial-1999
+1999,Palmeiras,Rogério,1,alta,PAL-oficial-1999
+2000,Palmeiras,Alex,4,alta,PAL-oficial-2000
+2000,Palmeiras,Pena,5,alta,PAL-oficial-2000
+2000,Palmeiras,Euller,4,alta,PAL-oficial-2000
+2000,Palmeiras,Júnior,3,alta,PAL-oficial-2000
+2000,Palmeiras,Rogério,3,alta,PAL-oficial-2000
+2000,Palmeiras,Marcelo Ramos,3,alta,PAL-oficial-2000
+2000,Palmeiras,Arce,1,alta,PAL-oficial-2000
+2001,Palmeiras,Lopes,9,alta,PAL-oficial-2001;PAL-curiosidades
+2001,Palmeiras,Alex,4,alta,PAL-oficial-2001
+2001,Palmeiras,Fábio Júnior,5,alta,PAL-oficial-2001
+2001,Palmeiras,Arce,1,alta,PAL-oficial-2001
+2005,Palmeiras,Osmar,4,alta,PAL-oficial-2005
+2006,Palmeiras,Edmundo,3,alta,PAL-oficial-2006;PAL-curiosidades
+2006,Palmeiras,Marcinho,5,alta,PAL-oficial-2006
+2006,Palmeiras,Washington,5,alta,PAL-oficial-2006
+2007,Flamengo,Renato Abreu,5,media,ANacao-2007
+2007,Flamengo,Souza,3,media,ANacao-2007
+2008,Flamengo,Souza,1,media,ANacao-2008
+2008,Flamengo,Marcinho,5,media,ANacao-2008
+2009,Palmeiras,Keirrison,5,media,PAL-oficial-2009 (Gazeta diz 6)
+2009,Palmeiras,Diego Souza,4,alta,PAL-oficial-2009
+2010,Flamengo,Adriano,4,media,ANacao-2010
+2010,Flamengo,Vágner Love,4,media,ANacao-2010
+2016,Palmeiras,Gabriel Jesus,4,alta,PAL-oficial-2016
+2016,Palmeiras,Allione,3,alta,PAL-oficial-2016
+2017,Palmeiras,Willian,4,alta,PAL-oficial-2017
+2017,Palmeiras,Mina,3,alta,PAL-oficial-2017
+2017,Palmeiras,Dudu,1,alta,PAL-oficial-2017
+2018,Palmeiras,Borja,9,alta,PAL-oficial-2018;PAL-curiosidades
+2018,Palmeiras,Willian,1,alta,PAL-oficial-2018
+2018,Palmeiras,Dudu,2,alta,PAL-oficial-2018
+2018,Palmeiras,Gustavo Gómez,1,alta,Wikipedia;PAL-curiosidades (marcou em todas as edições 2018-2025)
+2019,Palmeiras,Gustavo Scarpa,6,alta,PAL-oficial-2019;Wikipedia
+2019,Palmeiras,Borja,2,media,PAL-oficial-2019 (total 11 confirmado; divisão 2017/2019 incerta)
+2019,Palmeiras,Dudu,2,alta,PAL-oficial-2019
+2019,Palmeiras,Raphael Veiga,1,alta,PAL-oficial-2019;Wikipedia
+2019,Palmeiras,Gustavo Gómez,1,alta,PAL-oficial-2019;Wikipedia
+2019,Palmeiras,Luiz Adriano,1,alta,PAL-oficial-2019
+2019,Flamengo,Gabigol,9,alta,Bolavip;IstoE;Lance
+2019,Flamengo,Bruno Henrique,5,alta,Wikipedia
+2019,Flamengo,Arrascaeta,1,alta,Wikipedia
+2020,Palmeiras,Rony,5,alta,PAL-oficial-2020;Wikipedia
+2020,Palmeiras,Luiz Adriano,5,alta,PAL-oficial-2020
+2020,Palmeiras,Willian,4,alta,PAL-oficial-2020
+2020,Palmeiras,Raphael Veiga,2,alta,PAL-oficial-2020;Wikipedia
+2020,Palmeiras,Gustavo Gómez,2,alta,PAL-oficial-2020;Wikipedia
+2020,Palmeiras,Gustavo Scarpa,1,media,Wikipedia (tabela oficial 2020 tem 3 gols sem autor)
+2020,Flamengo,Gabigol,2,alta,Bolavip;IstoE
+2020,Flamengo,Pedro,2,alta,Lance-2023;Wikipedia
+2020,Flamengo,Bruno Henrique,4,alta,Wikipedia
+2020,Flamengo,Arrascaeta,1,alta,Wikipedia
+2021,Palmeiras,Rony,6,alta,PAL-oficial-2021;Wikipedia
+2021,Palmeiras,Raphael Veiga,5,alta,PAL-oficial-2021;Wikipedia
+2021,Palmeiras,Willian,2,alta,PAL-oficial-2021
+2021,Palmeiras,Dudu,2,alta,PAL-oficial-2021
+2021,Palmeiras,Gustavo Gómez,1,alta,PAL-oficial-2021;Wikipedia
+2021,Palmeiras,Gustavo Scarpa,1,alta,PAL-oficial-2021;Wikipedia
+2021,Palmeiras,Luiz Adriano,1,alta,PAL-oficial-2021
+2021,Flamengo,Gabigol,11,alta,PT-Wikipedia;IstoE
+2021,Flamengo,Pedro,2,alta,Lance-2023;Wikipedia
+2021,Flamengo,Bruno Henrique,6,alta,Wikipedia
+2021,Flamengo,Arrascaeta,4,alta,Wikipedia
+2022,Palmeiras,Rony,7,alta,PAL-oficial-2022;Wikipedia
+2022,Palmeiras,Rafael Navarro,7,alta,PAL-oficial-2022
+2022,Palmeiras,Raphael Veiga,6,alta,PAL-oficial-2022;Wikipedia
+2022,Palmeiras,Gustavo Scarpa,4,alta,PAL-oficial-2022;Wikipedia
+2022,Palmeiras,Gustavo Gómez,2,alta,PAL-oficial-2022;Wikipedia
+2022,Flamengo,Pedro,12,alta,Lance-2023;Wikipedia
+2022,Flamengo,Gabigol,6,alta,IstoE
+2022,Flamengo,Arrascaeta,2,alta,Wikipedia
+2022,Flamengo,Bruno Henrique,1,alta,Wikipedia
+2023,Palmeiras,Rony,3,alta,Wikipedia (pagina oficial 2023 veio inconsistente)
+2023,Palmeiras,Raphael Veiga,3,alta,Wikipedia
+2023,Palmeiras,Gustavo Gómez,3,alta,Wikipedia;Lance (maior marca dele numa edição)
+2023,Palmeiras,Rafael Navarro,1,media,inferido: total 8 (PAL-curiosidades) menos 2022
+2023,Palmeiras,Flaco López,1,alta,PAL-oficial-2023
+2023,Flamengo,Pedro,3,alta,Wikipedia
+2023,Flamengo,Bruno Henrique,3,alta,Wikipedia
+2023,Flamengo,Gabigol,2,alta,IstoE;JornaldeBrasilia (2º gol vs Ñublense)
+2024,Palmeiras,Raphael Veiga,2,alta,PAL-oficial-2024;Wikipedia
+2024,Palmeiras,Rony,2,alta,PAL-oficial-2024;Wikipedia
+2024,Palmeiras,Flaco López,2,alta,PAL-oficial-2024
+2024,Palmeiras,Gustavo Gómez,2,media,Wikipedia (tabela oficial diz 1 mas tem 1 gol sem autor)
+2024,Flamengo,Pedro,5,alta,Wikipedia
+2025,Palmeiras,Flaco López,7,alta,PAL-oficial-2025;PAL-prejogo-13out26
+2025,Palmeiras,Raphael Veiga,3,alta,PAL-oficial-2025;Wikipedia
+2025,Palmeiras,Gustavo Gómez,2,alta,PAL-oficial-2025;Wikipedia
+2025,Flamengo,Pedro,2,alta,Wikipedia
+2025,Flamengo,Arrascaeta,2,alta,Wikipedia
+2025,Flamengo,Bruno Henrique,1,alta,Wikipedia
+2026,Palmeiras,Flaco López,4,alta,Torcedores-out26 (14 no total)
+2026,Palmeiras,Gustavo Gómez,1,media,inferido: 15 (PAL-prejogo-13out26) menos 14 até 2025
+2026,Flamengo,Bruno Henrique,5,alta,JB-set26;ColunadoFla-15out26
+2026,Flamengo,Arrascaeta,4,alta,Lance-18set26 (14 pelo FLA)
+2026,Flamengo,Pedro,2,media,inferido: 28 (Band-19ago26) menos 26 até 2025

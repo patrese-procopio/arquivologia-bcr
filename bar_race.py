@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import tempfile
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,7 +31,11 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.animation import FFMpegWriter, FuncAnimation  # noqa: E402
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
-from matplotlib.patches import FancyBboxPatch  # noqa: E402
+from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
+from matplotlib.colors import to_rgb  # noqa: E402
+from matplotlib.collections import LineCollection, PatchCollection  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import Circle, Ellipse, FancyBboxPatch, Polygon  # noqa: E402
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 log = logging.getLogger("bar_race")
@@ -51,8 +56,15 @@ class Tema:
     grade: str = "#1C2A40"
     fontes: tuple[str, ...] = ("Montserrat", "Inter", "DejaVu Sans")
     cores_clubes: dict[str, str] = field(default_factory=lambda: {
-        "Flamengo": "#D7262E",
+        "Flamengo": "#A3080E",        # vermelho sangue
         "Palmeiras": "#1E9E57",
+    })
+    # Fundo de torcida gerado por código (sem foto real: sem direito autoral nem de imagem)
+    torcida_ativa: bool = True
+    intensidade_torcida: float = 0.22   # opacidade máxima, na base da tela
+    cores_torcidas: dict[str, tuple[str, str]] = field(default_factory=lambda: {
+        "Flamengo": ("#A3080E", "#000000"),    # rubro-negra (esquerda)
+        "Palmeiras": ("#1E9E57", "#F2F2F2"),   # alviverde (direita)
     })
     siglas_clubes: dict[str, str] = field(default_factory=lambda: {
         "Flamengo": "FLA",
@@ -75,7 +87,7 @@ class ConfigVideo:
 
 @dataclass(frozen=True)
 class Textos:
-    selo: str = "ARQUIVO Nº 001"
+    selo: str = "BATALHA DE ARTILHEIROS"
     titulo: str = "Artilheiros na Libertadores"
     subtitulo: str = "Flamengo x Palmeiras · gols acumulados"
     fonte: str = "Fonte: dados de exemplo (fictícios)"
@@ -156,9 +168,16 @@ class Quadro:
     temporada: int
 
 
-def _calcular_posicoes(valores: np.ndarray, rotulos: np.ndarray, top_n: int) -> np.ndarray:
-    """Posição 0 = topo. Desempate estável pelo nome. Quem tem 0 gol fica fora da tela."""
-    ordem = np.lexsort((rotulos, -valores))
+def _calcular_posicoes(valores: np.ndarray, posicoes_anteriores: np.ndarray, top_n: int) -> np.ndarray:
+    """
+    Posição 0 = topo. Quem tem 0 gol fica fora da tela.
+
+    Desempate esportivo: em caso de empate, quem já estava na frente continua
+    na frente (= quem chegou primeiro àquela marca). np.lexsort ordena pela
+    ÚLTIMA chave e usa as anteriores como desempate, e é estável: empates
+    totais preservam a ordem original das colunas (alfabética).
+    """
+    ordem = np.lexsort((posicoes_anteriores, -valores))
     posicoes = np.empty(len(valores), dtype=float)
     posicoes[ordem] = np.arange(len(valores))
     posicoes[valores == 0] = top_n + 1
@@ -176,7 +195,10 @@ def montar_linha_do_tempo(acumulado: pd.DataFrame, eventos: dict[int, str],
     zeros = np.zeros(len(rotulos))
     estados = [zeros] + [acumulado.loc[t].to_numpy(dtype=float) for t in acumulado.index]
     temporadas = [int(acumulado.index[0])] + [int(t) for t in acumulado.index]
-    posicoes = [_calcular_posicoes(v, rotulos, cfg.top_n) for v in estados]
+    # Posições calculadas em sequência: cada temporada herda o desempate da anterior
+    posicoes = [_calcular_posicoes(estados[0], np.arange(len(rotulos), dtype=float), cfg.top_n)]
+    for v in estados[1:]:
+        posicoes.append(_calcular_posicoes(v, posicoes[-1], cfg.top_n))
 
     quadros: list[Quadro] = []
     for i in range(1, len(estados)):
@@ -197,6 +219,105 @@ def montar_linha_do_tempo(acumulado: pd.DataFrame, eventos: dict[int, str],
 
 
 # ---------------------------------------------------------------------------
+# Saída: ffmpeg com fundo estático
+# ---------------------------------------------------------------------------
+class FFMpegComFundo(FFMpegWriter):
+    """
+    FFMpegWriter que recebe uma imagem de fundo como 2ª entrada do ffmpeg.
+
+    O matplotlib envia só o gráfico (fundo transparente) e o ffmpeg faz a
+    sobreposição em C, muito mais rápido do que misturar a transparência de
+    uma imagem de tela inteira em Python a cada quadro.
+    """
+
+    def __init__(self, caminho_fundo: Path, **kwargs):
+        super().__init__(**kwargs)
+        self.caminho_fundo = caminho_fundo
+
+    def _args(self):
+        args = super()._args()
+        depois_do_pipe = args.index("pipe:") + 1
+        # A 2ª entrada precisa vir ANTES das opções de saída (codec, bitrate...)
+        args[depois_do_pipe:depois_do_pipe] = ["-loop", "1", "-i", str(self.caminho_fundo)]
+        return args
+
+
+# ---------------------------------------------------------------------------
+# Fundo: torcidas procedurais (silhuetas geradas por código)
+# ---------------------------------------------------------------------------
+def gerar_fundo_torcidas(cores_esq: tuple[str, str], cores_dir: tuple[str, str],
+                         intensidade: float, semente: int = 7,
+                         largura_px: int = 540, altura_px: int = 960) -> np.ndarray:
+    """
+    Desenha uma arquibancada em silhueta (cabeças, ombros, braços e bandeirões)
+    e devolve uma imagem RGBA. Esquerda = torcida 1, direita = torcida 2.
+
+    - Semente fixa: o fundo sai idêntico em toda execução (reprodutível).
+    - Renderizado em resolução menor e ampliado: é fundo desfocado, não precisa de detalhe.
+    - Opacidade cai de baixo para cima: forte na base, some antes do título.
+    """
+    rng = np.random.default_rng(semente)
+    proporcao = altura_px / largura_px            # coordenadas: x em [0,1], y em [0,proporcao]
+    fig = Figure(figsize=(largura_px / 100, altura_px / 100), dpi=100)
+    FigureCanvasAgg(fig)
+    ax = fig.add_axes((0, 0, 1, 1))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, proporcao)
+    ax.set_axis_off()
+    fig.patch.set_alpha(0)
+
+    def cor_para(x: float) -> str:
+        # transição suave no meio: perto do centro as torcidas se misturam
+        p_esq = np.clip((0.56 - x) / 0.12, 0, 1)
+        cores = cores_esq if rng.random() < p_esq else cores_dir
+        return cores[0] if rng.random() < 0.6 else cores[1]
+
+    pessoas, bracos, cores_bracos = [], [], []
+    fileiras = 16
+    for k in range(fileiras - 1, -1, -1):                 # de trás para frente
+        r = 0.022 * (1 - 0.45 * k / fileiras)             # perspectiva: fundo menor
+        y = 0.02 + k * 0.055
+        x = rng.uniform(-r, r)
+        while x < 1 + r:
+            cor = cor_para(x)
+            yy = y + rng.uniform(-0.25, 0.25) * r
+            pessoas.append(Ellipse((x, yy + 0.4 * r), 2.8 * r, 2.4 * r, color=cor))   # ombros
+            pessoas.append(Circle((x, yy + 1.9 * r), 0.85 * r, color=cor))          # cabeça
+            if rng.random() < 0.3:                                                   # braços erguidos
+                for lado in (-1, 1):
+                    bracos.append([(x + lado * 1.1 * r, yy + 1.2 * r),
+                                   (x + lado * rng.uniform(1.4, 2.2) * r, yy + rng.uniform(3.0, 4.0) * r)])
+                    cores_bracos.append(cor)
+            x += r * rng.uniform(2.2, 2.7)
+    ax.add_collection(PatchCollection(pessoas, match_original=True))
+    ax.add_collection(LineCollection(bracos, colors=cores_bracos, linewidths=3.2 * largura_px / 540, capstyle="round"))
+
+    # Bandeirões listrados tremulando (onda senoidal)
+    for x0, cores in [(0.10, cores_esq), (0.30, cores_esq), (0.70, cores_dir), (0.90, cores_dir)]:
+        base = 0.55 + rng.uniform(-0.05, 0.05)
+        topo = base + 0.42
+        ax.plot([x0, x0], [base - 0.25, topo], color=cores[1] if cores[1] != "#000000" else cores[0], lw=2 * largura_px / 540)
+        largura, altura, listras = 0.17, 0.16, 5
+        lado = -1 if x0 > 0.5 else 1
+        xs = np.linspace(0, largura, 30)
+        onda = 0.018 * np.sin(xs / largura * 2 * np.pi + rng.uniform(0, 6))
+        for i in range(listras):
+            y_ini = topo - altura * i / listras
+            y_fim = topo - altura * (i + 1) / listras
+            contorno = ([(x0 + lado * a, y_ini + o) for a, o in zip(xs, onda)]
+                        + [(x0 + lado * a, y_fim + o) for a, o in zip(xs[::-1], onda[::-1])])
+            ax.add_patch(Polygon(contorno, color=cores[i % 2]))
+
+    fig.canvas.draw()
+    imagem = np.asarray(fig.canvas.buffer_rgba()).astype(float) / 255
+    # Degradê de opacidade: linha 0 da imagem = topo da tela
+    altura_rel = np.linspace(1, 0, imagem.shape[0])[:, None]          # 1 no topo, 0 na base
+    fade = np.clip(1 - altura_rel / 0.62, 0, 1) ** 1.4                 # some acima de ~62% da altura
+    imagem[..., 3] *= intensidade * fade
+    return imagem
+
+
+# ---------------------------------------------------------------------------
 # Renderização
 # ---------------------------------------------------------------------------
 class RenderizadorCorrida:
@@ -207,7 +328,7 @@ class RenderizadorCorrida:
     """
 
     # Área segura: TikTok/Reels cobrem o topo, a base (legenda/botões) e a borda direita.
-    AREA_GRAFICO = (0.07, 0.33, 0.76, 0.41)  # [x, y, largura, altura] em fração da figura
+    AREA_GRAFICO = (0.07, 0.285, 0.76, 0.41)  # [x, y, largura, altura] em fração da figura
 
     def __init__(self, acumulado: pd.DataFrame, clube_por_rotulo: pd.Series,
                  eventos: dict[int, str], tema: Tema, cfg: ConfigVideo, textos: Textos,
@@ -217,18 +338,35 @@ class RenderizadorCorrida:
         self.eventos = eventos
         self.tema, self.cfg, self.textos = tema, cfg, textos
         self._xmax = 5.0
+        self.fundo_rgb: np.ndarray | None = None
 
         plt.rcParams["font.family"] = list(tema.fontes)
         # Tamanho em polegadas é fixo (base 100 dpi); só o dpi muda no preview.
         # Assim fontes e proporções ficam idênticas no preview e no render final.
         self.fig = plt.figure(figsize=(cfg.largura_px / 100, cfg.altura_px / 100),
                               dpi=cfg.dpi, facecolor=tema.fundo)
-        self.ax = self.fig.add_axes(self.AREA_GRAFICO, facecolor=tema.fundo)
+        if tema.torcida_ativa:
+            self._montar_fundo_torcidas()
+        # facecolor "none": o gráfico fica transparente e a torcida aparece por trás
+        self.ax = self.fig.add_axes(self.AREA_GRAFICO, facecolor="none")
         self._montar_cabecalho_e_rodape(caminho_mascote)
         self._montar_eixo()
         self._montar_barras()
 
     # -- montagem estática ---------------------------------------------------
+    def _montar_fundo_torcidas(self) -> None:
+        """Gera a arquibancada UMA vez e reaproveita como imagem em todos os quadros (cache)."""
+        esquerda, direita = list(self.tema.cores_torcidas.values())[:2]
+        largura, altura = (int(v) for v in self.fig.canvas.get_width_height())
+        torcida = gerar_fundo_torcidas(esquerda, direita, self.tema.intensidade_torcida,
+                                       largura_px=largura, altura_px=altura)
+        # Composição alpha "over": torcida por cima da cor de fundo -> imagem opaca
+        cor_fundo = np.array(to_rgb(self.tema.fundo))
+        alpha = torcida[..., 3:4]
+        self.fundo_rgb = torcida[..., :3] * alpha + cor_fundo * (1 - alpha)
+        # A figura vira transparente: o fundo entra depois, no ffmpeg
+        self.fig.patch.set_alpha(0)
+
     def _montar_cabecalho_e_rodape(self, caminho_mascote: Path | None) -> None:
         t, tx, f = self.tema, self.textos, self.fig
         f.text(0.07, 0.905, tx.selo, color=t.destaque, fontsize=26, fontweight="bold")
@@ -249,12 +387,12 @@ class RenderizadorCorrida:
         x_texto = 0.07
         if caminho_mascote and caminho_mascote.exists():
             img = OffsetImage(plt.imread(str(caminho_mascote)), zoom=0.30)
-            f.add_artist(AnnotationBbox(img, (0.07, 0.285), xycoords="figure fraction",
+            f.add_artist(AnnotationBbox(img, (0.07, 0.24), xycoords="figure fraction",
                                         frameon=False, box_alignment=(0, 0.5)))
             x_texto = 0.20
-        f.text(x_texto, 0.291, tx.perfil, color=t.destaque, fontsize=24,
+        f.text(x_texto, 0.246, tx.perfil, color=t.destaque, fontsize=24,
                fontweight="bold", va="bottom")
-        f.text(x_texto, 0.287, tx.fonte, color=t.texto_suave, fontsize=18, va="top")
+        f.text(x_texto, 0.242, tx.fonte, color=t.texto_suave, fontsize=18, va="top")
 
     def _montar_eixo(self) -> None:
         ax, t = self.ax, self.tema
@@ -266,16 +404,18 @@ class RenderizadorCorrida:
         ax.set_axisbelow(True)
         for lado in ax.spines.values():
             lado.set_visible(False)
+        # Ano em branco e bem visível, mas ATRÁS das barras (zorder baixo):
+        # se uma barra passar por cima, o dado continua legível
         self.ano = ax.text(0.98, 0.04, "", transform=ax.transAxes, ha="right", va="bottom",
-                           color=t.texto, alpha=0.18, fontsize=130, fontweight="bold")
+                           color="#FFFFFF", alpha=0.85, fontsize=105, fontweight="bold", zorder=0.5)
 
     def _montar_barras(self) -> None:
         zeros = np.zeros(len(self.rotulos))
         fora = np.full(len(self.rotulos), self.cfg.top_n + 1.0)
         self.barras = self.ax.barh(fora, zeros, height=0.52, color=self.cores)
-        self.nomes = [self.ax.text(0, 0, r, color=self.tema.texto, fontsize=24,
+        self.nomes = [self.ax.text(0, 0, r, color=self.tema.texto, fontsize=22,
                                    fontweight="semibold", va="bottom") for r in self.rotulos]
-        self.valores = [self.ax.text(0, 0, "", color=self.tema.texto, fontsize=28,
+        self.valores = [self.ax.text(0, 0, "", color=self.tema.texto, fontsize=25,
                                      fontweight="bold", va="center") for _ in self.rotulos]
 
     # -- atualização por quadro ----------------------------------------------
@@ -292,6 +432,13 @@ class RenderizadorCorrida:
         for barra, nome, valor, v, p in zip(self.barras, self.nomes, self.valores,
                                             q.valores, q.posicoes):
             alpha = float(np.clip(self.cfg.top_n - p, 0, 1))  # fade ao entrar/sair
+            visivel = alpha > 0
+            # Otimização: artista com alpha=0 AINDA é desenhado pelo matplotlib.
+            # Escondê-lo de verdade evita trabalho inútil (dezenas de jogadores fora do top).
+            for artista in (barra, nome, valor):
+                artista.set_visible(visivel)
+            if not visivel:
+                continue
             barra.set_y(p - 0.26)
             barra.set_width(v)
             barra.set_alpha(alpha)
@@ -318,18 +465,35 @@ class RenderizadorCorrida:
     def exportar_video(self, quadros: list[Quadro], saida: Path) -> None:
         anim = FuncAnimation(self.fig, lambda i: self.desenhar(quadros[i]),
                              frames=len(quadros), blit=False)
-        writer = FFMpegWriter(
-            fps=self.cfg.fps, codec="libx264", bitrate=8000,
-            extra_args=["-pix_fmt", "yuv420p", "-preset", "medium"],  # compatível com celular
-        )
         saida.parent.mkdir(parents=True, exist_ok=True)
-        anim.save(str(saida), writer=writer, dpi=self.cfg.dpi)
+        if self.fundo_rgb is None:
+            writer = FFMpegWriter(
+                fps=self.cfg.fps, codec="libx264", bitrate=8000,
+                extra_args=["-pix_fmt", "yuv420p", "-preset", "medium"],  # compatível com celular
+            )
+            anim.save(str(saida), writer=writer, dpi=self.cfg.dpi)
+        else:
+            with tempfile.TemporaryDirectory() as pasta:
+                caminho_fundo = Path(pasta) / "fundo.png"
+                plt.imsave(caminho_fundo, self.fundo_rgb)
+                writer = FFMpegComFundo(
+                    caminho_fundo, fps=self.cfg.fps, codec="libx264", bitrate=8000,
+                    extra_args=["-filter_complex", "[1:v][0:v]overlay=shortest=1,format=yuv420p",
+                                "-preset", "medium"],
+                )
+                anim.save(str(saida), writer=writer, dpi=self.cfg.dpi)
         log.info("Vídeo salvo em %s", saida)
 
     def exportar_capa(self, quadro_final: Quadro, saida: Path) -> None:
         for _ in range(60):          # deixa a escala convergir antes da foto
             self.desenhar(quadro_final)
-        self.fig.savefig(saida, dpi=self.cfg.dpi, facecolor=self.tema.fundo)
+        if self.fundo_rgb is None:
+            self.fig.savefig(saida, dpi=self.cfg.dpi, facecolor=self.tema.fundo)
+        else:
+            self.fig.canvas.draw()
+            frente = np.asarray(self.fig.canvas.buffer_rgba()).astype(float) / 255
+            alpha = frente[..., 3:4]
+            plt.imsave(saida, frente[..., :3] * alpha + self.fundo_rgb * (1 - alpha))
         log.info("Capa salva em %s", saida)
 
 
@@ -345,14 +509,24 @@ def main() -> None:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--top-n", type=int, default=8)
     parser.add_argument("--preview", action="store_true", help="render rápido em 540x960")
+    # Textos por vídeo: o código não muda, só os parâmetros (configuração fora do código)
+    textos_padrao = Textos()
+    parser.add_argument("--selo", default=textos_padrao.selo)
+    parser.add_argument("--titulo", default=textos_padrao.titulo)
+    parser.add_argument("--subtitulo", default=textos_padrao.subtitulo)
+    parser.add_argument("--fonte", default=textos_padrao.fonte, help="crédito das fontes no rodapé")
+    parser.add_argument("--sem-torcida", action="store_true", help="desliga o fundo de torcidas")
     args = parser.parse_args()
+
+    # Fail fast: valida a entrada antes de qualquer processamento pesado
     if not args.dados.exists():
-           parser.error(f"arquivo de dados não encontrado: {args.dados}")
+        parser.error(f"arquivo de dados não encontrado: {args.dados}")
     if args.eventos and not args.eventos.exists():
-            parser.error(f"arquivo de eventos não encontrado: {args.eventos}")
+        parser.error(f"arquivo de eventos não encontrado: {args.eventos}")
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
-    tema, textos = Tema(), Textos()
+    tema = Tema(torcida_ativa=not args.sem_torcida)
+    textos = Textos(selo=args.selo, titulo=args.titulo, subtitulo=args.subtitulo, fonte=args.fonte)
     cfg = ConfigVideo(fps=args.fps, top_n=args.top_n, dpi=50 if args.preview else 100)
 
     df = carregar_e_validar(args.dados, set(tema.cores_clubes))
