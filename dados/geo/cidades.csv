@@ -1,0 +1,15 @@
+cidade,lat,lon,dx,dy,detalhe_prata,lat_detalhe,lon_detalhe
+Rio de Janeiro,-22.91,-43.17,14,-4,nao,,
+São Paulo,-23.55,-46.63,-14,10,nao,,
+Santos,-23.96,-46.33,10,-16,nao,,
+Belo Horizonte,-19.92,-43.94,12,10,nao,,
+Porto Alegre,-30.03,-51.23,14,9,nao,,
+Assunção,-25.26,-57.58,-14,6,nao,,
+Santiago,-33.45,-70.67,-14,0,nao,,
+Medellín,6.24,-75.58,14,8,nao,,
+Manizales,5.07,-75.52,14,-10,nao,,
+Quito,-0.18,-78.47,14,0,nao,,
+Buenos Aires,-34.60,-58.38,0,0,sim,-34.35,-58.75
+Avellaneda,-34.66,-58.37,0,0,sim,-34.95,-58.15
+La Plata,-34.92,-57.95,0,0,sim,-35.35,-57.70
+Montevidéu,-34.90,-56.16,0,0,sim,-34.75,-56.20
