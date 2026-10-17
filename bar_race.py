@@ -37,6 +37,8 @@ from matplotlib.collections import LineCollection, PatchCollection  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.patches import Circle, Ellipse, FancyBboxPatch, Polygon  # noqa: E402
 
+from avatares import gerar_avatar  # noqa: E402
+
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 log = logging.getLogger("bar_race")
 
@@ -60,6 +62,8 @@ class Tema:
         "Palmeiras": "#1E9E57",
     })
     # Fundo de torcida gerado por código (sem foto real: sem direito autoral nem de imagem)
+    avatares_ativos: bool = True
+    pasta_fotos: Path = Path("assets/fotos")
     torcida_ativa: bool = True
     intensidade_torcida: float = 0.22   # opacidade máxima, na base da tela
     cores_torcidas: dict[str, tuple[str, str]] = field(default_factory=lambda: {
@@ -334,6 +338,7 @@ class RenderizadorCorrida:
                  eventos: dict[int, str], tema: Tema, cfg: ConfigVideo, textos: Textos,
                  caminho_mascote: Path | None):
         self.rotulos = list(acumulado.columns)
+        self.clubes = list(clube_por_rotulo)
         self.cores = [tema.cores_clubes[c] for c in clube_por_rotulo]
         self.eventos = eventos
         self.tema, self.cfg, self.textos = tema, cfg, textos
@@ -387,12 +392,12 @@ class RenderizadorCorrida:
         x_texto = 0.07
         if caminho_mascote and caminho_mascote.exists():
             img = OffsetImage(plt.imread(str(caminho_mascote)), zoom=0.30)
-            f.add_artist(AnnotationBbox(img, (0.07, 0.24), xycoords="figure fraction",
+            f.add_artist(AnnotationBbox(img, (0.07, 0.175), xycoords="figure fraction",
                                         frameon=False, box_alignment=(0, 0.5)))
             x_texto = 0.20
-        f.text(x_texto, 0.246, tx.perfil, color=t.destaque, fontsize=24,
+        f.text(x_texto, 0.181, tx.perfil, color=t.destaque, fontsize=24,
                fontweight="bold", va="bottom")
-        f.text(x_texto, 0.242, tx.fonte, color=t.texto_suave, fontsize=18, va="top")
+        f.text(x_texto, 0.177, tx.fonte, color=t.texto_suave, fontsize=18, va="top")
 
     def _montar_eixo(self) -> None:
         ax, t = self.ax, self.tema
@@ -414,29 +419,46 @@ class RenderizadorCorrida:
         fora = np.full(len(self.rotulos), self.cfg.top_n + 1.0)
         self.barras = self.ax.barh(fora, zeros, height=0.52, color=self.cores)
         self.nomes = [self.ax.text(0, 0, r, color=self.tema.texto, fontsize=22,
-                                   fontweight="semibold", va="bottom") for r in self.rotulos]
-        self.valores = [self.ax.text(0, 0, "", color=self.tema.texto, fontsize=25,
-                                     fontweight="bold", va="center") for _ in self.rotulos]
+                                   fontweight="semibold", va="bottom", zorder=6) for r in self.rotulos]
+        # Valor como anotação com deslocamento em PONTOS: fica sempre à direita do avatar,
+        # independentemente da escala do eixo (que muda a cada quadro)
+        desloc_valor = 55 if self.tema.avatares_ativos else 6
+        self.valores = [self.ax.annotate("", xy=(0, 0), xytext=(desloc_valor, 0),
+                                         textcoords="offset points", color=self.tema.texto,
+                                         fontsize=25, fontweight="bold", va="center", zorder=5)
+                        for _ in self.rotulos]
+        self.avatares: list[AnnotationBbox | None] = [None] * len(self.rotulos)
+        if self.tema.avatares_ativos:
+            for i, (rotulo, clube, cor) in enumerate(zip(self.rotulos, self.clubes, self.cores)):
+                jogador, sigla = rotulo.rsplit(" · ", 1)
+                imagem = gerar_avatar(self.tema.pasta_fotos, jogador, sigla, cor)
+                caixa = AnnotationBbox(OffsetImage(imagem, zoom=0.40), (0, 0), xybox=(3, 0),
+                                       boxcoords="offset points", box_alignment=(0, 0.5),
+                                       frameon=False, zorder=4)
+                caixa.set_visible(False)
+                self.ax.add_artist(caixa)
+                self.avatares[i] = caixa
 
     # -- atualização por quadro ----------------------------------------------
     def _atualizar_escala(self, valores: np.ndarray, posicoes: np.ndarray) -> float:
         visiveis = valores[posicoes < self.cfg.top_n]
-        alvo = max(5.0, (visiveis.max() if visiveis.size else 0) * 1.22)
+        folga = 1.40 if self.tema.avatares_ativos else 1.22   # espaço para avatar + número
+        alvo = max(5.0, (visiveis.max() if visiveis.size else 0) * folga)
         self._xmax += (alvo - self._xmax) * 0.12   # suavização exponencial: sem "tremedeira"
         self.ax.set_xlim(0, self._xmax)
         return self._xmax
 
     def desenhar(self, q: Quadro):
-        xmax = self._atualizar_escala(q.valores, q.posicoes)
-        respiro = xmax * 0.012
-        for barra, nome, valor, v, p in zip(self.barras, self.nomes, self.valores,
-                                            q.valores, q.posicoes):
+        self._atualizar_escala(q.valores, q.posicoes)
+        for barra, nome, valor, avatar, v, p in zip(self.barras, self.nomes, self.valores,
+                                                    self.avatares, q.valores, q.posicoes):
             alpha = float(np.clip(self.cfg.top_n - p, 0, 1))  # fade ao entrar/sair
             visivel = alpha > 0
             # Otimização: artista com alpha=0 AINDA é desenhado pelo matplotlib.
             # Escondê-lo de verdade evita trabalho inútil (dezenas de jogadores fora do top).
-            for artista in (barra, nome, valor):
-                artista.set_visible(visivel)
+            for artista in (barra, nome, valor, avatar):
+                if artista is not None:
+                    artista.set_visible(visivel)
             if not visivel:
                 continue
             barra.set_y(p - 0.26)
@@ -444,9 +466,12 @@ class RenderizadorCorrida:
             barra.set_alpha(alpha)
             nome.set_position((0, p - 0.31))
             nome.set_alpha(alpha)
-            valor.set_position((v + respiro, p))
+            valor.xy = (v, p)
             valor.set_text(f"{v:.0f}")
             valor.set_alpha(alpha)
+            if avatar is not None:
+                avatar.xy = (v, p)
+                avatar.offsetbox.image.set_alpha(alpha)
 
         self.ano.set_text(str(q.temporada))
         self.legenda.set_text(self._legenda_ativa(q.temporada))
@@ -516,6 +541,7 @@ def main() -> None:
     parser.add_argument("--subtitulo", default=textos_padrao.subtitulo)
     parser.add_argument("--fonte", default=textos_padrao.fonte, help="crédito das fontes no rodapé")
     parser.add_argument("--sem-torcida", action="store_true", help="desliga o fundo de torcidas")
+    parser.add_argument("--sem-fotos", action="store_true", help="desliga os avatares dos jogadores")
     args = parser.parse_args()
 
     # Fail fast: valida a entrada antes de qualquer processamento pesado
@@ -525,7 +551,7 @@ def main() -> None:
         parser.error(f"arquivo de eventos não encontrado: {args.eventos}")
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
-    tema = Tema(torcida_ativa=not args.sem_torcida)
+    tema = Tema(torcida_ativa=not args.sem_torcida, avatares_ativos=not args.sem_fotos)
     textos = Textos(selo=args.selo, titulo=args.titulo, subtitulo=args.subtitulo, fonte=args.fonte)
     cfg = ConfigVideo(fps=args.fps, top_n=args.top_n, dpi=50 if args.preview else 100)
 
