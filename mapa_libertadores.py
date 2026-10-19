@@ -39,7 +39,11 @@ from matplotlib.offsetbox import AnnotationBbox, OffsetImage  # noqa: E402
 from matplotlib.patches import ConnectionPatch, Polygon, Rectangle  # noqa: E402
 from matplotlib.path import Path as CaminhoMpl  # noqa: E402
 
+from PIL import Image  # noqa: E402
+
 from bandeiras import gerar_bandeira, proporcao  # noqa: E402
+from encarada import CenaEncarada, painel_de_imagem  # noqa: E402
+from herois import CenaHeroi, Heroi, carregar_herois  # noqa: E402
 from bar_race import FFMpegComFundo  # noqa: E402   (reuso: mesmo truque de fundo via ffmpeg)
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
@@ -83,9 +87,16 @@ class ConfigMapa:
     dpi: int = 100
     seg_por_ano: float = 0.82
     fator_evento: float = 1.9
-    seg_gancho: float = 1.4       # estado final parado: só o tempo de ler a pergunta
-    seg_rebobinar: float = 0.8    # transição animada final -> 1960
-    seg_final: float = 5.0
+    seg_gancho: float = 2.4       # encarada Brasil x Argentina (0 = sem encarada)
+    seg_rebobinar: float = 0.7    # transição animada final -> 1960
+    seg_final: float = 4.0
+    # --- ritmo para redes sociais (mesma lógica do bar race) ---
+    duracao_alvo: float | None = None   # segundos totais; None = seg_por_ano fixo (versão longa)
+    ano_foco: int | None = None         # a partir deste ano o tempo corre mais devagar
+    peso_foco: float = 1.6
+    seg_minimo_ano: float = 0.20        # menos que isso a bolha "pisca" sem ser vista
+    barra_progresso: bool = True
+    seg_heroi: float = 1.3              # cartão do herói em anos-chave (ver dados/herois_libertadores.csv)
     extensao: tuple[float, float, float, float] = (-82.0, -34.0, -56.0, 13.5)   # lon0, lon1, lat0, lat1
     extensao_prata: tuple[float, float, float, float] = (-59.3, -55.5, -35.85, -33.95)
     zoom_camera: float = 0.05            # aproximação total da câmera ao longo do vídeo (5%)
@@ -98,8 +109,8 @@ class TextosMapa:
     selo: str = "MAPA DA GLÓRIA ETERNA"
     titulo: str = "Campeões da Libertadores"
     subtitulo: str = "1960–2025 · a cidade de cada campeão"
-    gancho_1: str = "BRASIL x ARGENTINA"
-    gancho_2: str = "Quem tem mais Libertadores?"
+    gancho_empate: str = "EMPATE HISTÓRICO"
+    gancho_empate_sub: str = "Quem desempata?"
     final_1: str = "25 x 25: empate histórico"
     final_2: str = "O Brasil não lidera desde 1964. Em 28/11, em Montevidéu, isso pode mudar."
     fonte: str = "Campeões: lista oficial, conferida em 2 fontes · Mapa: Natural Earth"
@@ -151,13 +162,14 @@ class QuadroMapa:
     cidade_nova: str = ""
     pais_novo: str = ""
     pulso: float = 1.0          # 0 -> 1 (anel expandindo)
-    modo: str = "ano"           # "gancho" | "rebobinar" | "ano" | "final"
+    modo: str = "ano"           # "gancho" | "rebobinar" | "ano" | "heroi" | "final"
     progresso: float = 0.0      # 0 -> 1 ao longo do vídeo inteiro (câmera)
     fase: float = 0.0           # 0 -> 1 dentro do bloco atual (pulsação do placar no final)
 
 
 def montar_linha_do_tempo(campeoes: pd.DataFrame, eventos: dict[int, str],
-                          cfg: ConfigMapa) -> list[QuadroMapa]:
+                          cfg: ConfigMapa, herois: dict[int, Heroi] | None = None) -> list[QuadroMapa]:
+    herois = herois or {}
     cidades = sorted(campeoes["cidade"].unique())
     paises = sorted(campeoes["pais"].unique())
     acum_c = {c: 0.0 for c in cidades}
@@ -183,9 +195,10 @@ def montar_linha_do_tempo(campeoes: pd.DataFrame, eventos: dict[int, str],
                                   {p: v * resta for p, v in final_p.items()},
                                   round(ano_ini + (ano_fim - ano_ini) * resta), modo="rebobinar"))
 
-    for _, linha in campeoes.iterrows():
+    anos_heroi = set(herois) & set(campeoes["temporada"].astype(int))
+    duracoes = _duracoes_por_ano(campeoes, eventos, cfg, segundos_extra=len(anos_heroi) * cfg.seg_heroi)
+    for (_, linha), segundos in zip(campeoes.iterrows(), duracoes):
         ano, cidade, pais = int(linha["temporada"]), linha["cidade"], linha["pais"]
-        segundos = cfg.seg_por_ano * (cfg.fator_evento if ano in eventos else 1.0)
         passos = max(2, round(segundos * cfg.fps))
         for i in range(passos):
             t = i / (passos - 1)
@@ -198,6 +211,11 @@ def montar_linha_do_tempo(campeoes: pd.DataFrame, eventos: dict[int, str],
             quadros.append(QuadroMapa(por_c, por_p, ano, linha["clube"], cidade, pais, pulso=t))
         acum_c[cidade] += 1
         acum_p[pais] += 1
+        if ano in anos_heroi:
+            # pausa dramática: o mapa congela no fim do ano e o cartão do herói entra por cima
+            n = round(cfg.seg_heroi * cfg.fps)
+            quadros += [QuadroMapa(dict(acum_c), dict(acum_p), ano, linha["clube"], cidade, pais,
+                                   pulso=1.0, modo="heroi", fase=i / n) for i in range(n)]
 
     n_final = round(cfg.seg_final * cfg.fps)
     quadros += [QuadroMapa(dict(acum_c), dict(acum_p), ano_fim, modo="final", fase=i / n_final)
@@ -207,6 +225,24 @@ def montar_linha_do_tempo(campeoes: pd.DataFrame, eventos: dict[int, str],
     quadros = [replace(q, progresso=i / total) for i, q in enumerate(quadros)]
     log.info("Linha do tempo: %d quadros (%.1f s)", len(quadros), len(quadros) / cfg.fps)
     return quadros
+
+
+def _duracoes_por_ano(campeoes: pd.DataFrame, eventos: dict[int, str], cfg: ConfigMapa,
+                      segundos_extra: float = 0.0) -> np.ndarray:
+    """Tempo de tela de cada ano: pesos (legenda, ano-foco) escalados para caber na duração-alvo.
+
+    Mesma ideia de orçamento do bar race: o total é fixo, os pesos dizem como repartir.
+    """
+    anos = campeoes["temporada"].astype(int).to_numpy()
+    pesos = np.where(np.isin(anos, list(eventos)), cfg.fator_evento, 1.0)
+    if cfg.ano_foco is not None:
+        pesos = pesos * np.where(anos >= cfg.ano_foco, cfg.peso_foco, 1.0)
+    if cfg.duracao_alvo is None:
+        return pesos * cfg.seg_por_ano
+    disponivel = cfg.duracao_alvo - cfg.seg_gancho - cfg.seg_rebobinar - cfg.seg_final - segundos_extra
+    if disponivel <= 0:
+        raise ValueError("duração-alvo menor que encarada + rebobinar + pausa final")
+    return np.maximum(cfg.seg_minimo_ano, pesos * disponivel / pesos.sum())
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +292,7 @@ class RenderizadorMapa:
 
     def __init__(self, campeoes: pd.DataFrame, cidades: pd.DataFrame, paises_geo: list[dict],
                  eventos: dict[int, str], tema: TemaMapa, cfg: ConfigMapa, textos: TextosMapa,
-                 caminho_mascote: Path | None):
+                 caminho_mascote: Path | None, herois: dict[int, Heroi] | None = None):
         self.tema, self.cfg, self.textos, self.eventos = tema, cfg, textos, eventos
         self.cidades = cidades
         self.pais_da_cidade = campeoes.drop_duplicates("cidade").set_index("cidade")["pais"].to_dict()
@@ -274,6 +310,21 @@ class RenderizadorMapa:
         self._montar_mapa(paises_geo)
         self._montar_prata(paises_geo)
         self._montar_textos(caminho_mascote)
+        # "Corpo" = tudo que some durante a encarada (o rodapé com a marca fica sempre)
+        self.corpo = [a for a in (*self.fig.axes, *self.fig.texts, *self.fig.artists)
+                      if not any(a is r for r in self.rodape)]
+        self.cena: CenaEncarada | None = None
+        if cfg.seg_gancho > 0:
+            self._montar_encarada(campeoes)
+        self.progresso = None
+        if cfg.barra_progresso:
+            self._montar_barra_progresso()
+        self.cena_heroi: CenaHeroi | None = None
+        if herois:
+            escala = cfg.dpi / 100
+            self.cena_heroi = CenaHeroi(herois, round(cfg.largura_px * escala), round(cfg.altura_px * escala),
+                                        cor_carimbo=tema.laranja, cor_texto=tema.texto, cor_fundo=tema.fundo)
+            self.cena_heroi.montar(self.fig)
 
     # -- montagem ---------------------------------------------------------------
     def _eixo_geografico(self, area, extensao, lat_ref: float):
@@ -334,7 +385,7 @@ class RenderizadorMapa:
             c: self.ax.annotate("", (fora.loc[c, "lon"], fora.loc[c, "lat"]),
                                 xytext=(fora.loc[c, "dx"], fora.loc[c, "dy"]), textcoords="offset points",
                                 ha="left" if fora.loc[c, "dx"] >= 0 else "right", va="center",
-                                color=t.texto, fontsize=15, fontweight="bold", zorder=6,
+                                color=t.texto, fontsize=18, fontweight="bold", zorder=6,
                                 path_effects=self.contorno)
             for c in self.cid_mapa}
 
@@ -441,7 +492,7 @@ class RenderizadorMapa:
                                       textcoords="offset points",
                                       ha="center" if c == "Montevidéu" else "left",
                                       va="top" if c == "Montevidéu" else "center",
-                                      color=t.texto, fontsize=15, fontweight="bold", zorder=6,
+                                      color=t.texto, fontsize=18, fontweight="bold", zorder=6,
                                       path_effects=self.contorno)
             for c in self.cid_prata}
         self.pulso_prata = self.ax_prata.scatter([], [], s=[], facecolors="none", edgecolors="white",
@@ -467,9 +518,9 @@ class RenderizadorMapa:
 
         # Cartão do ano: ano + campeão + cidade
         self.card_ano = f.text(0.06, 0.778, "", color="#FFFFFF", fontsize=50, fontweight="bold", va="center")
-        self.card_clube = f.text(0.30, 0.786, "", color=t.texto, fontsize=30, fontweight="bold", va="center")
-        self.card_cidade = f.text(0.30, 0.766, "", color=t.texto_suave, fontsize=22, va="center")
-        self.legenda = f.text(0.06, 0.738, "", color=t.laranja, fontsize=26, fontweight="bold",
+        self.card_clube = f.text(0.30, 0.786, "", color=t.texto, fontsize=33, fontweight="bold", va="center")
+        self.card_cidade = f.text(0.30, 0.766, "", color=t.texto_suave, fontsize=24, va="center")
+        self.legenda = f.text(0.06, 0.738, "", color=t.laranja, fontsize=29, fontweight="bold",
                               va="center", linespacing=1.2)
 
         # Outros países (fora do duelo principal), no Atlântico ao lado do mapa
@@ -483,15 +534,50 @@ class RenderizadorMapa:
             self.outros[p] = f.text(0.97, y, "0", color=t.texto, fontsize=17, fontweight="bold",
                                     va="center", ha="right")
 
-        # Rodapé
+        # Rodapé (a marca: continua visível até durante a encarada)
+        self.rodape = []
         x_texto = 0.06
         if caminho_mascote and caminho_mascote.exists():
             img = OffsetImage(plt.imread(str(caminho_mascote)), zoom=0.30)
-            f.add_artist(AnnotationBbox(img, (0.06, 0.082), xycoords="figure fraction",
-                                        frameon=False, box_alignment=(0, 0.5)))
+            self.rodape.append(f.add_artist(AnnotationBbox(img, (0.06, 0.082), xycoords="figure fraction",
+                                                           frameon=False, box_alignment=(0, 0.5))))
             x_texto = 0.19
-        f.text(x_texto, 0.088, tx.perfil, color=t.destaque, fontsize=24, fontweight="bold", va="bottom")
-        f.text(x_texto, 0.084, tx.fonte, color=t.texto_suave, fontsize=15, va="top")
+        self.rodape += [
+            f.text(x_texto, 0.088, tx.perfil, color=t.destaque, fontsize=24, fontweight="bold", va="bottom"),
+            f.text(x_texto, 0.084, tx.fonte, color=t.texto_suave, fontsize=15, va="top"),
+        ]
+
+    def _montar_encarada(self, campeoes: pd.DataFrame) -> None:
+        """Brasil x Argentina frente a frente, com as bandeiras (desenhadas por código: sem licença
+        de imagem a gerenciar). Título e números vêm dos DADOS, como no bar race."""
+        t, cfg, tx = self.tema, self.cfg, self.textos
+        totais = campeoes["pais"].value_counts()
+        br, ar = int(totais.get("Brasil", 0)), int(totais.get("Argentina", 0))
+        if br == ar:
+            titulo, sub = tx.gancho_empate, tx.gancho_empate_sub
+        else:
+            lider = "BRASIL" if br > ar else "ARGENTINA"
+            titulo, sub = f"{lider} NA FRENTE", f"por {abs(br - ar)} título{'s' if abs(br - ar) > 1 else ''}"
+        escala = cfg.dpi / 100
+        larg_px, alt_px = CenaEncarada.tamanho_px(round(cfg.largura_px * escala), round(cfg.altura_px * escala))
+        paineis = []
+        for pais, lado in (("Brasil", "esquerda"), ("Argentina", "direita")):
+            bandeira = Image.fromarray((gerar_bandeira(pais, altura=alt_px) * 255).astype(np.uint8))
+            paineis.append(painel_de_imagem(bandeira, t.cores_paises[pais], lado, larg_px, alt_px))
+        self.cena = CenaEncarada(tuple(paineis), (t.cores_paises["Brasil"], t.cores_paises["Argentina"]),
+                                 ("Brasil", "Argentina"), (float(br), float(ar)), titulo, sub,
+                                 cor_titulo=t.laranja, cor_texto=t.texto, cor_chamada=t.destaque,
+                                 cor_fundo=t.fundo)
+        self.cena.montar(self.fig)
+
+    def _montar_barra_progresso(self) -> None:
+        """Barra fina que enche ao longo do vídeo: quem vê que falta pouco, fica até o fim."""
+        f, t = self.fig, self.tema
+        x0, y0, larg, alt = 0.06, 0.128, 0.88, 0.0045
+        f.patches.append(Rectangle((x0, y0), larg, alt, transform=f.transFigure, color="#1C2A40", zorder=1))
+        self.progresso = Rectangle((x0, y0), 0, alt, transform=f.transFigure, color=t.destaque, zorder=2)
+        f.patches.append(self.progresso)
+        self._progresso_largura = larg
 
     # -- atualização por quadro -------------------------------------------------
     @staticmethod
@@ -502,6 +588,18 @@ class RenderizadorMapa:
     def desenhar(self, q: QuadroMapa):
         t = self.tema
         cfg = self.cfg
+        if self.progresso is not None:
+            self.progresso.set_width(self._progresso_largura * q.progresso)
+        if self.cena_heroi is not None and q.modo != "heroi":
+            self.cena_heroi.esconder()
+        na_encarada = q.modo == "gancho" and self.cena is not None
+        if self.cena is not None:
+            self.cena.set_visible(na_encarada)
+        for a in self.corpo:
+            a.set_visible(not na_encarada)
+        if na_encarada:
+            self.cena.desenhar(q.fase)
+            return []
         titulo_agora = q.modo == "ano" and q.cidade_nova
         flash = max(0.0, 1 - q.pulso / 0.30) if titulo_agora else 0.0   # 1 -> 0 no início do ano
 
@@ -591,12 +689,6 @@ class RenderizadorMapa:
             self.card_clube.set_color(t.texto_suave)
             self.card_cidade.set_text("")
             self.legenda.set_text("")
-        elif q.modo == "gancho":
-            self.card_ano.set_text("")
-            self.card_clube.set_text("")
-            self.card_cidade.set_text("")
-            self.legenda.set_position((0.06, 0.770))
-            self.legenda.set_text(f"{self.textos.gancho_1}\n{self.textos.gancho_2}")
         elif q.modo == "final":
             self.card_ano.set_text("")
             self.card_clube.set_text("")
@@ -610,6 +702,8 @@ class RenderizadorMapa:
             self.card_clube.set_color(t.cores_paises[q.pais_novo])
             self.card_cidade.set_text(f"{q.cidade_nova} · {q.pais_novo}")
             self.legenda.set_text(self._legenda_ativa(q.ano))
+        if q.modo == "heroi" and self.cena_heroi is not None:
+            self.cena_heroi.desenhar(q.ano, q.fase)
         return []
 
     def _legenda_ativa(self, ano: int) -> str:
@@ -661,21 +755,32 @@ def main() -> None:
     parser.add_argument("--preview", action="store_true", help="render rápido em 540x960")
     parser.add_argument("--fps", type=int, default=30, choices=(30, 60),
                         help="60 = animação mais fluida (render ~2x mais demorado)")
+    parser.add_argument("--duracao-alvo", type=float, help="duração total em segundos (ex.: 35)")
+    parser.add_argument("--ano-foco", type=int, help="a partir deste ano o ritmo desacelera (ex.: 2019)")
+    parser.add_argument("--sem-gancho", action="store_true", help="sem a encarada inicial")
+    parser.add_argument("--herois", type=Path, default=Path("dados/herois_libertadores.csv"),
+                        help="CSV dos cartões de herói (imagens em assets/herois)")
+    parser.add_argument("--sem-herois", action="store_true", help="sem os cartões de herói")
     args = parser.parse_args()
     if not args.dados.exists():
         parser.error(f"pasta de dados não encontrada: {args.dados}")
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     tema, textos = TemaMapa(), TextosMapa()
-    cfg = ConfigMapa(dpi=50 if args.preview else 100, fps=args.fps)
+    cfg = ConfigMapa(dpi=50 if args.preview else 100, fps=args.fps, duracao_alvo=args.duracao_alvo,
+                     ano_foco=args.ano_foco, seg_gancho=0.0 if args.sem_gancho else ConfigMapa.seg_gancho)
 
     campeoes, cidades, paises = carregar_dados(args.dados, tema)
     eventos = carregar_eventos(args.eventos)
-    quadros = montar_linha_do_tempo(campeoes, eventos, cfg)
+    herois = {} if args.sem_herois else carregar_herois(args.herois, Path("assets/herois"))
+    quadros = montar_linha_do_tempo(campeoes, eventos, cfg, herois)
 
-    render = RenderizadorMapa(campeoes, cidades, paises, eventos, tema, cfg, textos, args.mascote)
+    render = RenderizadorMapa(campeoes, cidades, paises, eventos, tema, cfg, textos, args.mascote, herois)
     render.exportar_video(quadros, args.saida)
     render.exportar_capa(quadros[-1], args.saida.with_name(args.saida.stem + "_capa.png"))
+    if cfg.seg_gancho > 0:   # capa para TikTok/Shorts: a encarada logo após o impacto
+        render.exportar_capa(quadros[round(cfg.seg_gancho * cfg.fps * 0.6)],
+                             args.saida.with_name(args.saida.stem + "_capa_gancho.png"))
 
 
 if __name__ == "__main__":

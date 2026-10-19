@@ -5,13 +5,19 @@ Pipeline:
     CSV tidy (temporada, clube, jogador, gols)
         -> validação de qualidade de dados
         -> matriz acumulada (wide + cumsum)
-        -> linha do tempo de quadros interpolados (valores + posições)
+        -> gancho gerado a partir dos dados (os 2 líderes e a diferença entre eles)
+        -> linha do tempo com ritmo por peso + duração-alvo (interpolação de valores e posições)
         -> renderização com artistas reaproveitados
         -> MP4 H.264 (yuv420p)
+
+Lição aprendida (analytics do 1º post): a maioria saiu em 0:01. O 1º quadro era uma
+"tabela" com texto pequeno. Agora o vídeo abre com um gancho tipográfico GRANDE e em
+movimento desde o quadro 0, e a duração cai de ~56 s para ~30 s.
 
 Uso:
     python bar_race.py --dados dados/exemplo_gols.csv --eventos dados/exemplo_eventos.csv
     python bar_race.py --dados dados/exemplo_gols.csv --preview      # render rápido em 540x960
+    python bar_race.py --dados ... --duracao-alvo 30 --ano-foco 2019     # versão curta para TikTok
 """
 from __future__ import annotations
 
@@ -19,7 +25,7 @@ import argparse
 import logging
 import tempfile
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import matplotlib
@@ -35,9 +41,10 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
 from matplotlib.colors import to_rgb  # noqa: E402
 from matplotlib.collections import LineCollection, PatchCollection  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
-from matplotlib.patches import Circle, Ellipse, FancyBboxPatch, Polygon  # noqa: E402
+from matplotlib.patches import Circle, Ellipse, FancyBboxPatch, Polygon, Rectangle  # noqa: E402
 
 from avatares import gerar_avatar  # noqa: E402
+from encarada import CenaEncarada, montar_painel  # noqa: E402
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 log = logging.getLogger("bar_race")
@@ -87,6 +94,49 @@ class ConfigVideo:
     fator_evento: float = 1.8         # temporadas com legenda ficam mais lentas
     seg_segurar_final: float = 3.0    # pausa no ranking final (gancho para comentar)
     dpi: int = 100
+    # --- ritmo para redes sociais ---
+    duracao_alvo: float | None = None  # segundos totais; None = ritmo fixo (versão longa)
+    seg_gancho: float = 2.4           # abertura com o gancho tipográfico (0 = sem gancho)
+    ano_foco: int | None = None       # a partir deste ano o tempo corre 2x mais devagar (a parte que importa)
+    peso_foco: float = 2.0
+    seg_minimo_temporada: float = 0.12  # nenhuma temporada some rápido demais (sem "salto")
+    barra_progresso: bool = True      # mostra quanto falta: aumenta a taxa de quem assiste até o fim
+
+
+@dataclass(frozen=True)
+class Gancho:
+    """Abertura do vídeo: o "fim" da história primeiro, em letras grandes (padrão de retenção)."""
+    titulo: str
+    subtitulo: str
+    protagonistas: tuple[str, str]      # rótulos "Jogador · SIG": líder e perseguidor
+    valores: tuple[float, float]
+    chamada: str = "Veja como chegamos aqui ↓"
+    espelhar: tuple[bool, bool] = (False, False)   # vira a foto para os dois se olharem
+
+
+def nome_curto(jogador: str, limite: int = 10) -> str:
+    """Nome de tela: 'Raphael Veiga' -> 'Veiga'. Nome longo invade a lateral direita,
+    que no TikTok fica embaixo dos botões de curtir/comentar."""
+    return jogador if len(jogador) <= limite else jogador.split()[-1]
+
+
+def gancho_dos_dados(acumulado: pd.DataFrame) -> Gancho:
+    """Monta o gancho a partir do ranking FINAL: quem lidera, quem persegue e por quanto.
+
+    Gerado dos dados (não escrito à mão): se o CSV for atualizado depois de um jogo,
+    o gancho se atualiza junto, sem risco de o texto contradizer o gráfico.
+    """
+    final = acumulado.iloc[-1].sort_values(ascending=False, kind="stable")
+    (r1, v1), (r2, v2) = list(final.items())[:2]
+    n1, n2 = nome_curto(r1.split(" · ")[0]), nome_curto(r2.split(" · ")[0])
+    diff = int(v1 - v2)
+    if diff == 0:
+        titulo, sub = "EMPATE NO TOPO", f"{n1} x {n2}: quem desempata?"
+    else:
+        faltam = diff + 1                         # empatar não basta: precisa passar
+        titulo = f"FALTA{'M' if faltam > 1 else ''} {faltam} GO{'LS' if faltam > 1 else 'L'}"
+        sub = f"para {n2} passar {n1}"
+    return Gancho(titulo, sub, (r1, r2), (float(v1), float(v2)))
 
 
 @dataclass(frozen=True)
@@ -170,6 +220,9 @@ class Quadro:
     valores: np.ndarray
     posicoes: np.ndarray
     temporada: int
+    modo: str = "corrida"       # "gancho" | "corrida"
+    fase: float = 0.0           # 0 -> 1 dentro do gancho (anima a entrada dos elementos)
+    progresso: float = 0.0      # 0 -> 1 no vídeo inteiro (barra de progresso)
 
 
 def _calcular_posicoes(valores: np.ndarray, posicoes_anteriores: np.ndarray, top_n: int) -> np.ndarray:
@@ -204,22 +257,57 @@ def montar_linha_do_tempo(acumulado: pd.DataFrame, eventos: dict[int, str],
     for v in estados[1:]:
         posicoes.append(_calcular_posicoes(v, posicoes[-1], cfg.top_n))
 
+    duracoes = _duracoes_por_temporada(estados, temporadas, eventos, cfg)
+
     quadros: list[Quadro] = []
+    n_gancho = round(cfg.seg_gancho * cfg.fps)
+    for i in range(n_gancho):
+        quadros.append(Quadro(estados[0], posicoes[0], temporadas[0], modo="gancho", fase=i / n_gancho))
+
     for i in range(1, len(estados)):
         v0, v1 = estados[i - 1], estados[i]
         p0, p1 = posicoes[i - 1], posicoes[i]
-        segundos = cfg.seg_periodo_ativo if not np.array_equal(v0, v1) else cfg.seg_periodo_parado
-        if temporadas[i] in eventos:
-            segundos *= cfg.fator_evento
-        passos = max(2, round(segundos * cfg.fps))
+        passos = max(2, round(duracoes[i - 1] * cfg.fps))
 
         for t in _suavizar(np.linspace(0, 1, passos, endpoint=False)):
             quadros.append(Quadro(v0 + (v1 - v0) * t, p0 + (p1 - p0) * t, temporadas[i]))
 
     final = Quadro(estados[-1], posicoes[-1], temporadas[-1])
     quadros.extend([final] * round(cfg.seg_segurar_final * cfg.fps))
+    # replace() cria um objeto por quadro: `[final] * n` seriam n referências ao MESMO objeto
+    total = max(1, len(quadros) - 1)
+    quadros = [replace(q, progresso=i / total) for i, q in enumerate(quadros)]
     log.info("Linha do tempo: %d quadros (%.1f s)", len(quadros), len(quadros) / cfg.fps)
     return quadros
+
+
+def _duracoes_por_temporada(estados: list[np.ndarray], temporadas: list[int],
+                            eventos: dict[int, str], cfg: ConfigVideo) -> np.ndarray:
+    """Quanto tempo de tela cada temporada recebe.
+
+    1. Cada temporada ganha um PESO: com gol = 1; sem gol = proporcional ao "parado";
+       com legenda = x fator_evento; a partir do ano-foco = x peso_foco.
+    2. Sem duração-alvo: peso x seg_periodo_ativo (ritmo fixo, versão longa).
+    3. Com duração-alvo: os pesos são ESCALADOS para caber no tempo disponível.
+       É o mesmo raciocínio de um orçamento: o total é fixo, os pesos dizem como repartir.
+    """
+    pesos = []
+    for i in range(1, len(estados)):
+        mudou = not np.array_equal(estados[i - 1], estados[i])
+        peso = 1.0 if mudou else cfg.seg_periodo_parado / cfg.seg_periodo_ativo
+        if temporadas[i] in eventos:
+            peso *= cfg.fator_evento
+        if cfg.ano_foco is not None and temporadas[i] >= cfg.ano_foco:
+            peso *= cfg.peso_foco
+        pesos.append(peso)
+    pesos = np.array(pesos)
+
+    if cfg.duracao_alvo is None:
+        return pesos * cfg.seg_periodo_ativo
+    disponivel = cfg.duracao_alvo - cfg.seg_gancho - cfg.seg_segurar_final
+    if disponivel <= 0:
+        raise ValueError("duração-alvo menor que gancho + pausa final")
+    return np.maximum(cfg.seg_minimo_temporada, pesos * disponivel / pesos.sum())
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +424,7 @@ class RenderizadorCorrida:
 
     def __init__(self, acumulado: pd.DataFrame, clube_por_rotulo: pd.Series,
                  eventos: dict[int, str], tema: Tema, cfg: ConfigVideo, textos: Textos,
-                 caminho_mascote: Path | None):
+                 caminho_mascote: Path | None, gancho: Gancho | None = None):
         self.rotulos = list(acumulado.columns)
         self.clubes = list(clube_por_rotulo)
         self.cores = [tema.cores_clubes[c] for c in clube_por_rotulo]
@@ -357,11 +445,19 @@ class RenderizadorCorrida:
         self._montar_cabecalho_e_rodape(caminho_mascote)
         self._montar_eixo()
         self._montar_barras()
+        self.gancho = gancho
+        self.cena: CenaEncarada | None = None
+        if gancho is not None and cfg.seg_gancho > 0:
+            self._montar_gancho(gancho)
+        self.progresso = None
+        if cfg.barra_progresso:
+            self._montar_barra_progresso()
 
     # -- montagem estática ---------------------------------------------------
     def _montar_fundo_torcidas(self) -> None:
         """Gera a arquibancada UMA vez e reaproveita como imagem em todos os quadros (cache)."""
-        esquerda, direita = list(self.tema.cores_torcidas.values())[:2]
+        cores = list(self.tema.cores_torcidas.values())
+        esquerda, direita = cores[0], cores[-1]       # um clube só: a mesma torcida dos dois lados
         largura, altura = (int(v) for v in self.fig.canvas.get_width_height())
         torcida = gerar_fundo_torcidas(esquerda, direita, self.tema.intensidade_torcida,
                                        largura_px=largura, altura_px=altura)
@@ -374,19 +470,24 @@ class RenderizadorCorrida:
 
     def _montar_cabecalho_e_rodape(self, caminho_mascote: Path | None) -> None:
         t, tx, f = self.tema, self.textos, self.fig
-        f.text(0.07, 0.905, tx.selo, color=t.destaque, fontsize=26, fontweight="bold")
-        f.text(0.07, 0.868, tx.titulo, color=t.texto, fontsize=46, fontweight="bold")
-        f.text(0.07, 0.842, tx.subtitulo, color=t.texto_suave, fontsize=27)
-
+        # Tudo que some durante o gancho fica nesta lista (liga/desliga em bloco)
+        self.cabecalho: list = [
+            f.text(0.07, 0.905, tx.selo, color=t.destaque, fontsize=28, fontweight="bold"),
+            f.text(0.07, 0.868, tx.titulo, color=t.texto, fontsize=48, fontweight="bold"),
+            f.text(0.07, 0.842, tx.subtitulo, color=t.texto_suave, fontsize=28),
+        ]
         x = 0.07
-        for clube, cor in t.cores_clubes.items():
-            f.patches.append(FancyBboxPatch((x, 0.812), 0.022, 0.012, boxstyle="round,pad=0.002",
-                                            transform=f.transFigure, color=cor))
-            f.text(x + 0.03, 0.813, clube, color=t.texto, fontsize=24, va="bottom")
+        # legenda de cores só faz sentido com 2+ clubes (com um só, o título já diz qual é)
+        for clube, cor in (t.cores_clubes.items() if len(t.cores_clubes) > 1 else []):
+            caixa = FancyBboxPatch((x, 0.812), 0.022, 0.012, boxstyle="round,pad=0.002",
+                                   transform=f.transFigure, color=cor)
+            f.patches.append(caixa)
+            self.cabecalho += [caixa, f.text(x + 0.03, 0.813, clube, color=t.texto, fontsize=26, va="bottom")]
             x += 0.26
 
-        self.legenda = f.text(0.07, 0.772, "", color=t.laranja, fontsize=31,
+        self.legenda = f.text(0.07, 0.772, "", color=t.laranja, fontsize=35,
                               fontweight="bold", va="center", linespacing=1.25)
+        self.cabecalho.append(self.legenda)
 
         # Rodapé (assinatura): mascote + @ — vira marca d'água se o vídeo for repostado
         x_texto = 0.07
@@ -412,32 +513,59 @@ class RenderizadorCorrida:
         # Ano em branco e bem visível, mas ATRÁS das barras (zorder baixo):
         # se uma barra passar por cima, o dado continua legível
         self.ano = ax.text(0.98, 0.04, "", transform=ax.transAxes, ha="right", va="bottom",
-                           color="#FFFFFF", alpha=0.85, fontsize=105, fontweight="bold", zorder=0.5)
+                           color="#FFFFFF", alpha=0.85, fontsize=120, fontweight="bold", zorder=0.5)
 
     def _montar_barras(self) -> None:
         zeros = np.zeros(len(self.rotulos))
         fora = np.full(len(self.rotulos), self.cfg.top_n + 1.0)
         self.barras = self.ax.barh(fora, zeros, height=0.52, color=self.cores)
-        self.nomes = [self.ax.text(0, 0, r, color=self.tema.texto, fontsize=22,
+        self.nomes = [self.ax.text(0, 0, r, color=self.tema.texto, fontsize=27,
                                    fontweight="semibold", va="bottom", zorder=6) for r in self.rotulos]
         # Valor como anotação com deslocamento em PONTOS: fica sempre à direita do avatar,
         # independentemente da escala do eixo (que muda a cada quadro)
-        desloc_valor = 55 if self.tema.avatares_ativos else 6
+        desloc_valor = 60 if self.tema.avatares_ativos else 6
         self.valores = [self.ax.annotate("", xy=(0, 0), xytext=(desloc_valor, 0),
                                          textcoords="offset points", color=self.tema.texto,
-                                         fontsize=25, fontweight="bold", va="center", zorder=5)
+                                         fontsize=31, fontweight="bold", va="center", zorder=5)
                         for _ in self.rotulos]
         self.avatares: list[AnnotationBbox | None] = [None] * len(self.rotulos)
         if self.tema.avatares_ativos:
             for i, (rotulo, clube, cor) in enumerate(zip(self.rotulos, self.clubes, self.cores)):
                 jogador, sigla = rotulo.rsplit(" · ", 1)
                 imagem = gerar_avatar(self.tema.pasta_fotos, jogador, sigla, cor)
-                caixa = AnnotationBbox(OffsetImage(imagem, zoom=0.40), (0, 0), xybox=(3, 0),
+                caixa = AnnotationBbox(OffsetImage(imagem, zoom=0.44), (0, 0), xybox=(3, 0),
                                        boxcoords="offset points", box_alignment=(0, 0.5),
                                        frameon=False, zorder=4)
                 caixa.set_visible(False)
                 self.ax.add_artist(caixa)
                 self.avatares[i] = caixa
+
+    def _montar_gancho(self, g: Gancho) -> None:
+        """Abertura estilo "encarada de UFC" (cena reutilizável em encarada.py)."""
+        cfg, t = self.cfg, self.tema
+        escala = cfg.dpi / 100
+        larg_px, alt_px = CenaEncarada.tamanho_px(round(cfg.largura_px * escala), round(cfg.altura_px * escala))
+        paineis, cores, nomes = [], [], []
+        for k, (rotulo, lado) in enumerate(zip(g.protagonistas, ("esquerda", "direita"))):
+            jogador, sigla = rotulo.rsplit(" · ", 1)
+            cor = self.cores[self.rotulos.index(rotulo)]
+            paineis.append(montar_painel(t.pasta_fotos, jogador, sigla, cor, lado, larg_px, alt_px,
+                                         espelhar=g.espelhar[k]))
+            cores.append(cor)
+            nomes.append(nome_curto(jogador))
+        self.cena = CenaEncarada(tuple(paineis), tuple(cores), tuple(nomes), g.valores, g.titulo,
+                                 g.subtitulo, g.chamada, cor_titulo=t.laranja, cor_texto=t.texto,
+                                 cor_chamada=t.destaque, cor_fundo=t.fundo)
+        self.cena.montar(self.fig)
+
+    def _montar_barra_progresso(self) -> None:
+        """Barra fina que enche ao longo do vídeo: quem vê que falta pouco, fica até o fim."""
+        f, t = self.fig, self.tema
+        x0, y0, larg, alt = 0.07, 0.232, 0.86, 0.0045
+        f.patches.append(Rectangle((x0, y0), larg, alt, transform=f.transFigure, color=t.grade, zorder=1))
+        self.progresso = Rectangle((x0, y0), 0, alt, transform=f.transFigure, color=t.destaque, zorder=2)
+        f.patches.append(self.progresso)
+        self._progresso_largura = larg
 
     # -- atualização por quadro ----------------------------------------------
     def _atualizar_escala(self, valores: np.ndarray, posicoes: np.ndarray) -> float:
@@ -449,6 +577,18 @@ class RenderizadorCorrida:
         return self._xmax
 
     def desenhar(self, q: Quadro):
+        if self.progresso is not None:
+            self.progresso.set_width(self._progresso_largura * q.progresso)
+        no_gancho = q.modo == "gancho" and self.cena is not None
+        if self.cena is not None:
+            self.cena.set_visible(no_gancho)
+        for a in self.cabecalho:
+            a.set_visible(not no_gancho)
+        self.ax.set_visible(not no_gancho)
+        if no_gancho:
+            self.cena.desenhar(q.fase)
+            return []
+
         self._atualizar_escala(q.valores, q.posicoes)
         for barra, nome, valor, avatar, v, p in zip(self.barras, self.nomes, self.valores,
                                                     self.avatares, q.valores, q.posicoes):
@@ -542,6 +682,16 @@ def main() -> None:
     parser.add_argument("--fonte", default=textos_padrao.fonte, help="crédito das fontes no rodapé")
     parser.add_argument("--sem-torcida", action="store_true", help="desliga o fundo de torcidas")
     parser.add_argument("--sem-fotos", action="store_true", help="desliga os avatares dos jogadores")
+    # Ritmo para redes sociais
+    parser.add_argument("--duracao-alvo", type=float, help="duração total em segundos (ex.: 30)")
+    parser.add_argument("--ano-foco", type=int, help="a partir deste ano o ritmo desacelera (ex.: 2019)")
+    parser.add_argument("--sem-gancho", action="store_true", help="começa direto na corrida (versão longa)")
+    parser.add_argument("--gancho-titulo", help="substitui o título gerado dos dados (ex.: 'FALTAM 3 GOLS')")
+    parser.add_argument("--gancho-sub", help="substitui o subtítulo gerado dos dados")
+    parser.add_argument("--sem-progresso", action="store_true", help="esconde a barra de progresso")
+    parser.add_argument("--clubes", default="",
+                        help="filtra clubes, separados por vírgula (ex.: 'Flamengo'). Vazio = todos")
+    parser.add_argument("--espelhar", default="", help="espelha a foto: 'esquerda', 'direita' ou 'ambos'")
     args = parser.parse_args()
 
     # Fail fast: valida a entrada antes de qualquer processamento pesado
@@ -553,16 +703,43 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     tema = Tema(torcida_ativa=not args.sem_torcida, avatares_ativos=not args.sem_fotos)
     textos = Textos(selo=args.selo, titulo=args.titulo, subtitulo=args.subtitulo, fonte=args.fonte)
-    cfg = ConfigVideo(fps=args.fps, top_n=args.top_n, dpi=50 if args.preview else 100)
+    cfg = ConfigVideo(fps=args.fps, top_n=args.top_n, dpi=50 if args.preview else 100,
+                      duracao_alvo=args.duracao_alvo, ano_foco=args.ano_foco,
+                      seg_gancho=0.0 if args.sem_gancho else ConfigVideo.seg_gancho,
+                      barra_progresso=not args.sem_progresso)
 
     df = carregar_e_validar(args.dados, set(tema.cores_clubes))
+    # Filtro por clube DEPOIS da validação: o CSV inteiro continua sendo checado
+    clubes = [c.strip() for c in args.clubes.split(",") if c.strip()]
+    if clubes:
+        desconhecidos = set(clubes) - set(tema.cores_clubes)
+        if desconhecidos:
+            parser.error(f"clube(s) sem cor no tema: {sorted(desconhecidos)}")
+        df = df[df["clube"].isin(clubes)]
+        tema = replace(tema,
+                       cores_clubes={c: tema.cores_clubes[c] for c in clubes},
+                       cores_torcidas={c: tema.cores_torcidas[c] for c in clubes if c in tema.cores_torcidas})
+        log.info("Filtro de clubes: %s (%d linhas)", ", ".join(clubes), len(df))
     acumulado, clube_por_rotulo = montar_acumulado(df, tema.siglas_clubes)
     eventos = carregar_eventos(args.eventos)
     quadros = montar_linha_do_tempo(acumulado, eventos, cfg)
 
-    render = RenderizadorCorrida(acumulado, clube_por_rotulo, eventos, tema, cfg, textos, args.mascote)
+    gancho = None
+    if cfg.seg_gancho > 0:
+        gancho = gancho_dos_dados(acumulado)
+        gancho = replace(gancho, titulo=args.gancho_titulo or gancho.titulo,
+                         subtitulo=args.gancho_sub or gancho.subtitulo,
+                         espelhar=(args.espelhar in ("esquerda", "ambos"),
+                                   args.espelhar in ("direita", "ambos")))
+        log.info("Gancho: %s / %s", gancho.titulo, gancho.subtitulo)
+
+    render = RenderizadorCorrida(acumulado, clube_por_rotulo, eventos, tema, cfg, textos,
+                                 args.mascote, gancho)
     render.exportar_video(quadros, args.saida)
     render.exportar_capa(quadros[-1], args.saida.with_name(args.saida.stem + "_capa.png"))
+    if gancho is not None:   # capa para TikTok/Shorts: o quadro da encarada, logo após o impacto
+        i = round(cfg.seg_gancho * cfg.fps * 0.6)
+        render.exportar_capa(quadros[i], args.saida.with_name(args.saida.stem + "_capa_gancho.png"))
 
 
 if __name__ == "__main__":
