@@ -1,0 +1,40 @@
+inicio,fim,tipo_original,regiao,lado,clube,dias_total,jogos,registros,fonte,fonte_lado,obs_lado
+2010-04-25,2010-05-02,Trauma no olho (hifema),cabeça,direito,Santos,7,1.0,1,atletico_mg+bahia_ja,atletico_mg+bahia_ja,olho direito
+2014-01-16,2014-02-18,Lesão no tornozelo,tornozelo,direito,Barcelona,33,10.0,1,TM_via_soccerway_2024,globo_2023,
+2014-04-17,2014-05-13,Lesão no pé,pé,esquerdo,Barcelona,26,7.0,1,TM_via_soccerway_2024,estadao_2014,edema no quarto metatarsiano
+2014-07-05,2014-08-05,Lesão na coluna,costas,centro,Barcelona,31,2.0,1,TM_via_soccerway_2024,globo_2023,fratura da 3ª vértebra
+2014-08-21,2014-08-29,Entorse do tornozelo,tornozelo,não informado,Barcelona,8,1.0,1,TM_via_soccerway_2024,,
+2015-12-07,2015-12-22,Problema no adutor,virilha,não informado,Barcelona,15,5.0,2,TM_via_soccerway_2024,,
+2016-01-21,2016-01-29,Problemas musculares na coxa,coxa,não informado,Barcelona,8,2.0,1,TM_via_soccerway_2024,,
+2016-12-05,2016-12-13,Problema no adutor,virilha,não informado,Barcelona,8,2.0,1,TM_via_soccerway_2024,,
+2017-03-09,2017-03-17,Problemas musculares,não informada,não informado,Barcelona,8,1.0,1,TM_via_soccerway_2024,,
+2017-09-21,2017-09-26,Pancada,não informada,não informado,PSG,5,1.0,1,TM_via_soccerway_2024,,
+2017-11-02,2017-11-14,Pancada,não informada,não informado,PSG,12,2.0,1,TM_via_soccerway_2024,,
+2018-01-11,2018-01-16,Pancada,não informada,não informado,PSG,5,1.0,1,TM_via_soccerway_2024,,
+2018-01-19,2018-01-26,Problemas musculares na coxa,coxa,não informado,PSG,7,2.0,1,TM_via_soccerway_2024,,
+2018-02-26,2018-05-28,Fratura do metatarso,pé,direito,PSG,91,18.0,1,TM_via_soccerway_2024,globo_2023,5º metatarso
+2018-11-21,2018-11-28,Problema no adutor,virilha,não informado,PSG,7,1.0,1,TM_via_soccerway_2024,,
+2018-12-03,2018-12-29,Problema no adutor,virilha,não informado,PSG,26,5.0,1,TM_via_soccerway_2024,,
+2019-01-24,2019-04-20,Fratura do metatarso,pé,direito,PSG,86,20.0,1,TM_via_soccerway_2024,globo_2023,5º metatarso
+2019-06-07,2019-09-07,Rotura de ligamentos do tarso,tornozelo,direito,PSG,92,12.0,1,TM_via_soccerway_2024,globo_2023,
+2019-10-14,2019-11-21,Lesão na coxa,coxa,esquerdo,PSG,38,8.0,1,TM_via_soccerway_2024,globo_2023,
+2020-02-03,2020-02-17,Traumatismo na grade costal,costela,não informado,PSG,14,4.0,1,TM_via_soccerway_2024,,
+2020-10-28,2020-11-22,Problema no adutor,virilha,não informado,PSG,25,7.0,1,TM_via_soccerway_2024,,
+2020-12-14,2021-01-11,Problemas no tornozelo,tornozelo,não informado,PSG,28,5.0,1,TM_via_soccerway_2024,,
+2021-02-11,2021-04-15,Problema no adutor,virilha,esquerdo,PSG,63,13.0,1,TM_via_soccerway_2024,globo_2023,adutor da coxa esquerda
+2021-10-16,2021-10-24,Problema no adutor,virilha,não informado,PSG,8,1.0,1,TM_via_soccerway_2024,,
+2021-11-15,2021-11-19,Problema no adutor,virilha,não informado,PSG,4,1.0,1,TM_via_soccerway_2024,,
+2021-11-29,2022-02-14,Lesão no tornozelo,tornozelo,esquerdo,PSG,77,15.0,1,TM_via_soccerway_2024,globo_2023,
+2022-11-25,2022-12-05,Lesão no tornozelo,tornozelo,direito,PSG,10,17.0,1,TM_via_soccerway_2024,globo_2023,
+2023-02-20,2023-06-30,Ankle Injury,tornozelo,direito,PSG,130,,1,soccerway_perfil_2026,globo_2023,legenda do infográfico diz 19/11/2023; o texto da matéria confirma fevereiro (jogo contra o Lille)
+2023-08-04,2023-09-04,Problemas musculares,não informada,não informado,PSG,31,5.0,1,TM_via_soccerway_2024,,
+2023-10-19,2024-10-21,Rutura dos ligamentos cruzados do joelho,joelho,esquerdo,Al-Hilal,368,53.0,1,TM_via_soccerway_2024,soccerway_2024,
+2024-11-04,2024-12-17,Lesão na coxa,coxa,não informado,Al-Hilal,43,7.0,1,TM_via_soccerway_2024,,
+2025-03-04,2025-04-12,Hamstring Injury,posterior,esquerdo,Santos,39,,2,soccerway_perfil_2026,tmc_2026,TMC: março/2025 coxa esquerda
+2025-04-18,2025-05-22,Hamstring Injury,posterior,esquerdo,Santos,34,,1,soccerway_perfil_2026,tmc_2026,TMC: abril a maio/2025 coxa esquerda
+2025-09-16,2025-10-31,Thigh Injury,coxa,direito,Santos,45,,1,soccerway_perfil_2026,tmc_2026,TMC: coxa direita grau 2
+2025-11-21,2025-11-28,Knee Injury,joelho,esquerdo,Santos,7,,1,soccerway_perfil_2026,tmc_2026,
+2026-01-09,2026-02-15,Knee Injury,joelho,não informado,Santos,37,,1,soccerway_perfil_2026,,
+2026-05-22,2026-05-28,Calf Injury,panturrilha,não informado,Santos,6,,1,soccerway_perfil_2026,,
+2026-06-05,2026-06-21,Calf Injury,panturrilha,não informado,Santos,16,,1,soccerway_perfil_2026,,
+2026-09-05,2026-10-07,Thigh Injury,coxa,direito,Santos,32,,1,soccerway_perfil_2026,tmc_2026,TMC: reto anterior da coxa direita
